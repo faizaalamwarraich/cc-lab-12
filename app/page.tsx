@@ -1,16 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-export default function UploadForm() {
+export default function Page() {
   const [uploadMessage, setUploadMessage] = useState('');
   const [imageUrl, setImageUrl] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const fileInput = document.getElementById('image') as HTMLInputElement;
-    const file = fileInput?.files?.[0];
+  // Just for debugging – logs env variables
+  useEffect(() => {
+    console.log('668132817392533', process.env.NEXT_PUBLIC_CLOUDINARY_API_KEY);
+    console.log('dck2dxvo1', process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME);
+  }, []);
 
+  async function handleUpload(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUploadMessage('');
+    setImageUrl('');
+
+    const fileInput = event.currentTarget.elements.namedItem('image') as HTMLInputElement;
+    const file = fileInput.files?.[0];
     if (!file) {
       setUploadMessage('Please select an image file.');
       return;
@@ -19,56 +27,65 @@ export default function UploadForm() {
     setUploadMessage('Uploading...');
 
     try {
+      // Step 1: Get signature
       const signatureRes = await fetch('/api/upload-signature');
+      if (!signatureRes.ok) throw new Error('Failed to get upload signature');
       const { signature, timestamp } = await signatureRes.json();
 
+      // Step 2: Prepare upload data
       const formData = new FormData();
       formData.append('file', file);
       formData.append('api_key', process.env.NEXT_PUBLIC_CLOUDINARY_API_KEY!);
-      formData.append('timestamp', timestamp);
+      formData.append('timestamp', timestamp.toString());
       formData.append('signature', signature);
 
-      const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME!;
-      const cloudinaryRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-        method: 'POST',
-        body: formData,
-      });
-
+      // Step 3: Upload to Cloudinary
+      const cloudinaryRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
       const cloudinaryData = await cloudinaryRes.json();
 
       if (cloudinaryData.secure_url) {
         setUploadMessage('Image uploaded successfully!');
         setImageUrl(cloudinaryData.secure_url);
+        console.log('Cloudinary response:', cloudinaryData);
 
-        await fetch('/api/save-image-url', {
+        // Step 4: Save image URL
+        const saveRes = await fetch('/api/save-image-url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: cloudinaryData.secure_url }),
         });
+
+        if (!saveRes.ok) {
+          console.error('Failed to save image URL');
+        }
       } else {
-        setUploadMessage('Image upload failed.');
-        console.error(cloudinaryData);
+        setUploadMessage('Upload failed.');
+        console.error('Cloudinary error:', cloudinaryData);
       }
-    } catch (err) {
+    } catch (error) {
       setUploadMessage('Error during upload.');
-      console.error(err);
+      console.error('Upload error:', error);
     }
-  };
+  }
 
   return (
     <div>
       <h1>Upload an Image</h1>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="image">Choose an image:</label>
-        <input type="file" id="image" name="image" accept="image/*" required />
-        <br /><br />
+      <form onSubmit={handleUpload}>
+        <input type="file" name="image" accept="image/*" required />
         <button type="submit">Upload</button>
       </form>
-      <div style={{ marginTop: '10px' }}>{uploadMessage}</div>
+      <p>{uploadMessage}</p>
       {imageUrl && (
-        <div style={{ marginTop: '10px' }}>
-          <strong>Image URL:</strong> <a href={imageUrl} target="_blank" rel="noopener noreferrer">{imageUrl}</a>
-        </div>
+        <p>
+          Uploaded Image URL: <a href={imageUrl} target="_blank" rel="noreferrer">{imageUrl}</a>
+        </p>
       )}
     </div>
   );
